@@ -1,0 +1,487 @@
+import wx
+import datetime as dt
+import sqlite3
+
+PACIENTE = 0
+IMC = 1
+
+sql = ''
+sql_insert_paciente = '''insert into paciente values (null, ?, ?, ?)'''
+sql_inser_imc = '''insert into imc values (null, ?, ?, ?, ?)'''
+sql_select_paciente = '''select {} from paciente {}'''
+sql_select_imc = '''select {} from imc {}'''
+
+
+
+def verificabd():
+    con = sqlite3.connect('clinica.db', detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
+    cur = con.cursor()
+
+    cur.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='paciente' ''')
+    if cur.fetchone()[0] == 0:
+        sql = 'create table paciente (id_paciente integer primary key, ' \
+              'nome varchar(100), ' \
+              'end varchar(150), altura integer)'
+        cur.execute(sql)
+
+    cur.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='imc' ''')
+
+    if cur.fetchone()[0] == 0:
+        sql = 'create table imc (id_imc integer primary key, ' \
+              'id_paciente integer, peso integer, imc real, data datetime,' \
+              ' foreign key (id_paciente) references paciente (id_paciente))'
+        cur.execute(sql)
+
+    con.commit()
+    con.close()
+
+
+def select(i=PACIENTE, campos='*', condicao=''):
+    con = sqlite3.connect('clinica.db')
+    cur = con.cursor()
+    if i == 0:
+        cur.execute(sql_select_paciente.format(campos, condicao))
+    else:
+        cur.execute((sql_select_imc).format(campos, condicao))
+
+    resultado = cur.fetchall()
+    con.commit()
+    con.close()
+    return resultado
+
+
+def insert(i=PACIENTE, value=''):
+    con = sqlite3.connect('clinica.db')
+    cur = con.cursor()
+    if i == 0:
+        cur.execute(sql_insert_paciente, value)
+
+    else:
+        cur.execute(sql_inser_imc, value)
+    con.commit()
+    id = cur.lastrowid
+    con.close()
+    return id
+
+class TelaInicial(wx.Frame):
+
+    def __init__(self, *args, **kw):
+        wx.Frame.__init__(self, None, wx.ID_ANY, title = 'IMC')
+
+        self.id_paciente = -1
+        self.panel = wx.Panel(self)
+
+        painel_botoes = wx.BoxSizer(wx.HORIZONTAL)
+        botao_ver = wx.Button(self.panel, label = 'Ver Perfil')
+        botao_adicionar = wx.Button(self.panel, label = 'Adicionar Paciente')
+        self.Bind(wx.EVT_BUTTON, self.onVerPaciente, botao_ver)
+        self.Bind(wx.EVT_BUTTON, self.onAdicionarPacienteImc, botao_adicionar)
+
+        painel_botoes.Add(botao_ver, 0)
+        painel_botoes.Add(botao_adicionar, 0)
+
+        self.list = wx.ListCtrl(self.panel, -1, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self.list.InsertColumn(0, 'id', width=50)
+        self.list.InsertColumn(1, 'nome', wx.LIST_FORMAT_LEFT, 280)
+        self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.onSelectItem, self.list)
+
+        pacientes = select(campos='id_paciente, nome')
+        for p in pacientes:
+            self.list.Append(p)
+
+        topSizer = wx.GridBagSizer(hgap=5, vgap=5)
+        topSizer.Add(self.list, pos=(0, 0), span=(2, 4), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER_HORIZONTAL | wx.EXPAND)
+        topSizer.Add(painel_botoes, pos=(3, 0), flag=wx.ALL)
+        topSizer.AddGrowableRow(0)
+        topSizer.AddGrowableCol(0)
+
+        self.panel.SetSizer(topSizer)
+        self.panel.Fit()
+        self.Centre()
+        self.Show(True)
+
+
+    def onSelectItem(self, event):
+        self.id_paciente = int(event.GetItem().GetText())
+
+
+    def onAdicionarPacienteImc(self, event):
+        global tela
+        tela = TelaAdicionar().Show()
+        self.Close()
+
+
+    def onVerPaciente(self, event):
+        global tela
+        paciente = select(condicao='''where id_paciente = '''+str(self.id_paciente))[0]
+        tela = TelaPaciente(paciente[0], paciente[1], paciente[2], paciente[3]).Show()
+        self.Close()
+
+
+class TelaPaciente(wx.Frame):
+    def __init__(self, id_paciente=-1, nome='', end='', altura=0, *args, **kw):
+        wx.Frame.__init__(self, None, wx.ID_ANY, 'Paciente '+str(id_paciente))
+
+        self.panel = wx.Panel(self)
+        self.id_imc = -1
+        self.id_paciente = id_paciente
+
+        nomeLabel = wx.StaticText(self.panel, label="Nome do Paciente:")
+        self.nomeInput = wx.StaticText(self.panel, label=nome)
+        endLabel = wx.StaticText(self.panel, label="Endereço Completo:")
+        self.endInput = wx.StaticText(self.panel, label=end)
+        alturaLabel = wx.StaticText(self.panel, label="Altura (cm)")
+        self.alturaInput = wx.StaticText(self.panel, label=str(altura))
+
+        botaoAdicionar = wx.Button(self.panel, label="Adicionar IMC")
+        self.Bind(wx.EVT_BUTTON, self.onAdicionar, botaoAdicionar)
+        botaoVoltar = wx.Button(self.panel, label="Voltar")
+        self.Bind(wx.EVT_BUTTON, self.onVoltar, botaoVoltar)
+
+        self.list = wx.ListCtrl(self.panel, -1, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self.list.InsertColumn(0, 'id', width=40)
+        self.list.InsertColumn(1, 'data', width=120)
+        self.list.InsertColumn(2, 'peso', wx.LIST_FORMAT_LEFT, 60)
+        self.list.InsertColumn(3, 'imc', wx.LIST_FORMAT_LEFT, 60)
+        self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.onSelectItem, self.list)
+
+        imcs = select(IMC, campos='id_imc, data, peso, imc', condicao='''where id_paciente = '''+str(id_paciente))
+        for imc in imcs:
+            self.list.Append(imc)
+
+        formSizer = wx.GridBagSizer(hgap=5, vgap=5)
+        formSizer.Add(nomeLabel, pos=(0, 0), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_LEFT, border=2)
+        formSizer.Add(self.nomeInput, pos=(0, 1), span=(0, 4), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(endLabel, pos=(1, 0), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_LEFT, border=2)
+        formSizer.Add(self.endInput, pos=(1, 1), span=(0, 4), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(alturaLabel, pos=(2, 0), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_LEFT, border=2)
+        formSizer.Add(self.alturaInput, pos=(2, 1), span =(0, 4), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(self.list, pos=(3, 0), span=(5, 4), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(botaoVoltar, pos=(8,1), flag=wx.ALL, border=2)
+        formSizer.Add(botaoAdicionar, pos=(8,2), flag=wx.ALL, border=2)
+
+        topSizer = wx.GridBagSizer(hgap=5, vgap=5)
+        topSizer.Add(formSizer, pos=(0, 0), span=(2, 4), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL |
+                                                              wx.ALIGN_CENTER_HORIZONTAL | wx.EXPAND, border=2)
+        topSizer.AddGrowableRow(0)
+        topSizer.AddGrowableCol(0)
+
+        self.panel.SetSizer(topSizer)
+        topSizer.Fit(self)
+        self.Centre()
+
+    def onSelectItem(self, event):
+        self.id_imc = event.GetText()
+
+
+    def onAdicionar(self,event):
+        global tela
+        tela = TelaAdicionarImc(self.id_paciente).Show()
+        self.Close()
+
+
+    def onVoltar(self,event):
+        global tela
+        tela = TelaInicial().Show()
+        self.Close()
+
+
+class TelaAdicionarImc(wx.Frame):
+    def __init__(self, id_paciente=-1, peso='', *args, **kw):
+        wx.Frame.__init__(self, None, wx.ID_ANY, 'Adicionar IMC')
+
+        self.panel = wx.Panel(self)
+        self.data = dt.datetime.today()
+        self.id_paciente = id_paciente
+
+        pesoLabel = wx.StaticText(self.panel, label="Peso (Kg)")
+        self.pesoInput = wx.TextCtrl(self.panel, value=str(peso))
+        dataLabel = wx.StaticText(self.panel, label='Data:')
+        datainput = wx.StaticText(self.panel, label=str(self.data))
+
+        botaoCalcular = wx.Button(self.panel, label='Calcular')
+        botaoReiniciar = wx.Button(self.panel, label='Reiniciar')
+        botaoCancelar = wx.Button(self.panel, label='Cancelar')
+
+        self.Bind(wx.EVT_BUTTON, self.onCalcular, botaoCalcular)
+        self.Bind(wx.EVT_BUTTON, self.onReiniciar, botaoReiniciar)
+        self.Bind(wx.EVT_BUTTON, self.onCancelar, botaoCancelar)
+
+        formSizer = wx.GridBagSizer(hgap=5, vgap=5)
+        formSizer.Add(dataLabel, pos=(0, 0), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_LEFT)
+        formSizer.Add(datainput, pos=(0, 1), span=(0, 4), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(pesoLabel, pos=(1, 0), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_LEFT, border=2)
+        formSizer.Add(self.pesoInput, pos=(1, 1), span=(1, 4), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(botaoCalcular, pos=(2,0), flag=wx.ALL, border=2)
+        formSizer.Add(botaoReiniciar, pos=(2,1), flag=wx.ALL, border=2)
+        formSizer.Add(botaoCancelar, pos=(2,2), flag=wx.ALL, border=2)
+
+        topSizer = wx.GridBagSizer(hgap=5, vgap=5)
+        topSizer.Add(formSizer, pos=(0, 0), span=(2, 4),
+                     flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER_HORIZONTAL | wx.EXPAND)
+        topSizer.AddGrowableRow(0)
+        topSizer.AddGrowableCol(0)
+
+        self.panel.SetSizer(topSizer)
+        topSizer.Fit(self)
+        self.Centre()
+
+
+    def onCalcular(self,event):
+        global tela
+        paciente = select(condicao='''where id_paciente = ''' + str(self.id_paciente))[0]
+        tela = TelaResultadoImc(paciente[0], paciente[1], paciente[2], paciente[3], int(self.pesoInput.GetValue())).Show()
+        self.Close()
+
+
+    def onCancelar(self,event):
+        global tela
+        paciente = select(condicao='''where id_paciente = ''' + str(self.id_paciente))[0]
+        tela = TelaPaciente(paciente[0], paciente[1], paciente[2], paciente[3]).Show()
+        self.Close()
+
+
+    def onReiniciar(self, event):
+        self.pesoInput.SetValue('')
+
+
+class TelaAdicionar(wx.Frame):
+    def __init__(self, nome = '', end = '', altura = '', peso = '', *args, **kw):
+        wx.Frame.__init__(self, None, wx.ID_ANY, 'Adicionar Paciente/IMC')
+
+        self.panel = wx.Panel(self)
+
+        nomeLabel = wx.StaticText(self.panel, label = "Nome do Paciente:")
+        self.nomeInput = wx.TextCtrl(self.panel, value = nome)
+
+        endLabel = wx.StaticText(self.panel, label="Endereço Completo:")
+        self.endInput = wx.TextCtrl(self.panel, value = end)
+
+        alturaLabel = wx.StaticText(self.panel, label="Altura (cm)")
+        self.alturaInput = wx.TextCtrl(self.panel, value = str(altura))
+
+        pesoLabel = wx.StaticText(self.panel, label="Peso (Kg)")
+        self.pesoInput = wx.TextCtrl(self.panel, value =str(peso))
+
+        self.botaoCalcular = wx.Button(self.panel, label = 'Calcular')
+        botaoReiniciar = wx.Button(self.panel, label = 'Reiniciar')
+        self.botaoCancelar = wx.Button(self.panel, label = 'Cancelar')
+        self.Bind(wx.EVT_BUTTON, self.onCalcular, self.botaoCalcular)
+        self.Bind(wx.EVT_BUTTON, self.onReiniciar, botaoReiniciar)
+        self.Bind(wx.EVT_BUTTON, self.onCancelar, self.botaoCancelar)
+
+        formSizer = wx.GridBagSizer(hgap = 5, vgap = 5)
+
+        formSizer.Add(nomeLabel, pos = (0,0), flag = wx.ALL|wx.ALIGN_CENTER_VERTICAL| wx.ALIGN_LEFT)
+        formSizer.Add(self.nomeInput, pos = (0,1), span=(0,4), flag = wx.ALL|wx.EXPAND, border=2)
+        formSizer.Add(endLabel, pos=(1, 0), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_LEFT, border=2)
+        formSizer.Add(self.endInput, pos=(1, 1), span = (1,4), flag=wx.ALL | wx.EXPAND,  border=2)
+        formSizer.Add(alturaLabel, pos = (2,0), flag = wx.ALL|wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_LEFT, border = 2)
+        formSizer.Add(self.alturaInput, pos=(2, 1), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(pesoLabel, pos=(2, 2), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_LEFT, border=2)
+        formSizer.Add(self.pesoInput, pos=(2, 4), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.AddGrowableRow(0)
+        formSizer.AddGrowableRow(1)
+        formSizer.AddGrowableRow(2)
+        formSizer.Add(self.botaoCalcular, pos=(3,1), flag=wx.ALL| wx.ALIGN_RIGHT)
+        formSizer.Add(botaoReiniciar, pos=(3,2), flag=wx.ALL | wx.ALIGN_LEFT)
+        formSizer.Add(self.botaoCancelar, pos=(3,4), flag=wx.ALL | wx.ALIGN_RIGHT)
+
+        topSizer = wx.GridBagSizer(hgap=5, vgap=5)
+        topSizer.Add(formSizer, pos=(0,0), span=(2,4), flag=wx.ALL| wx.ALIGN_CENTER_VERTICAL| wx.ALIGN_CENTER_HORIZONTAL| wx.EXPAND)
+        topSizer.AddGrowableRow(0)
+        topSizer.AddGrowableCol(0)
+
+        self.panel.SetSizer(topSizer)
+        topSizer.Fit(self)
+        self.Centre()
+
+    def onCalcular(self, event):
+        altura = int(self.alturaInput.GetValue())
+        peso = int(self.pesoInput.GetValue())
+        global tela
+        tela = TelaResultado(nome = self.nomeInput.GetValue(), end =self.endInput.GetValue(), altura= altura,peso = peso).Show()
+        self.Close()
+
+    def onReiniciar(self, event):
+        self.pesoInput.SetValue('')
+        self.alturaInput.SetValue('')
+        self.nomeInput.SetValue('')
+        self.endInput.SetValue('')
+
+
+    def onCancelar(self, event):
+        global tela
+        tela = TelaInicial().Show()
+        self.Close()
+
+
+class TelaResultado(wx.Frame):
+    def __init__(self, nome = '', end = '', altura = 0, peso =0, *args, **kw,):
+        wx.Frame.__init__(self, None, wx.ID_ANY, 'Resultado IMC')
+
+        self.panel = wx.Panel(self)
+        self.nome = nome
+        self.end = end
+        self.altura = altura
+        self.peso = peso
+        self.imc = peso/(altura^2)
+        self.data = dt.datetime.today()
+
+        nomeLabel = wx.StaticText(self.panel, label="Nome do Paciente:")
+        self.nomeInput = wx.StaticText(self.panel, label=self.nome)
+        endLabel = wx.StaticText(self.panel, label="Endereço Completo:")
+        self.endInput = wx.StaticText(self.panel, label=self.end)
+        alturaLabel = wx.StaticText(self.panel, label="Altura (cm):")
+        self.alturaInput = wx.StaticText(self.panel, label=str(self.altura))
+        pesoLabel = wx.StaticText(self.panel, label="Peso (Kg):")
+        self.pesoInput = wx.StaticText(self.panel, label=str(self.peso))
+        dataLabel = wx.StaticText(self.panel, label='Data:')
+        datainput = wx.StaticText(self.panel, label=str(self.data))
+        imcLabel = wx.StaticText(self.panel, label='IMC:')
+        imcinput = wx.StaticText(self.panel, label=str(self.imc))
+
+        botaoCalcular = wx.Button(self.panel, label = 'Salvar')
+        botaoReiniciar = wx.Button(self.panel, label = 'Voltar')
+        botaoSair = wx.Button(self.panel, label = 'Cancelar')
+
+        self.Bind(wx.EVT_BUTTON, self.onSalvar, botaoCalcular)
+        self.Bind(wx.EVT_BUTTON, self.onVoltar, botaoReiniciar)
+        self.Bind(wx.EVT_BUTTON, self.onCancelar, botaoSair)
+
+        formSizer = wx.GridBagSizer(hgap = 5, vgap = 5)
+
+        formSizer.Add(nomeLabel, pos = (0,0), flag = wx.ALL|wx.ALIGN_CENTER_VERTICAL)
+        formSizer.Add(self.nomeInput, pos = (0,1), flag = wx.ALL|wx.EXPAND, span=(1,3), border=2)
+        formSizer.Add(endLabel, pos=(1, 0), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL, border=2)
+        formSizer.Add(self.endInput, pos=(1, 1), flag=wx.ALL | wx.EXPAND, span=(1, 3), border=2)
+        formSizer.Add(alturaLabel, pos = (2,0), flag = wx.ALL|wx.ALIGN_CENTER_VERTICAL, border = 2)
+        formSizer.Add(self.alturaInput, pos=(2, 1), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(pesoLabel, pos=(2, 2), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL, border=2)
+        formSizer.Add(self.pesoInput, pos=(2, 3), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(dataLabel, pos=(3,0), flag=wx.ALL,border=2)
+        formSizer.Add(datainput, pos=(3,1),flag=wx.ALL, border=2)
+        formSizer.Add(imcLabel, pos=(3,2), flag=wx.ALL, border=2)
+        formSizer.Add(imcinput, pos=(3,3), flag=wx.ALL, border=2)
+
+        formSizer.Add(botaoCalcular, pos=(6, 1), flag=wx.ALL, border=2)
+        formSizer.Add(botaoReiniciar, pos=(6,2), flag = wx.ALL, border = 2)
+        formSizer.Add(botaoSair, pos=(6,3), flag=wx.ALL, border = 2)
+
+        topSizer = wx.GridBagSizer(hgap=5, vgap=5)
+        topSizer.Add(formSizer, pos=(0, 0), span=(2, 4),
+                     flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER_HORIZONTAL | wx.EXPAND)
+        topSizer.AddGrowableRow(0)
+        topSizer.AddGrowableCol(0)
+
+        self.panel.SetSizer(topSizer)
+        topSizer.Fit(self)
+        self.Centre()
+
+
+    def onSalvar(self, event):
+        id_paciente = insert(PACIENTE, (self.nome, self.end, self.altura))
+        insert(IMC, (id_paciente, self.peso, self.imc, self.data))
+        global tela
+        tela = TelaInicial().Show()
+        self.Close()
+
+
+    def onVoltar(self, event):
+        global tela
+        tela = TelaAdicionar(self.nome, self.end, self.altura, self.peso).Show()
+        self.Close()
+
+
+    def onCancelar(self, event):
+        global tela
+        tela = TelaInicial().Show()
+        self.Close()
+
+
+class TelaResultadoImc(wx.Frame):
+    def __init__(self, id_paciente = -1, nome = '', end = '', altura = 0, peso =0, *args, **kw,):
+        wx.Frame.__init__(self, None, wx.ID_ANY, 'IMC')
+
+        self.panel = wx.Panel(self)
+        self.nome = nome
+        self.end = end
+        self.altura = altura
+        self.peso = peso
+        self.imc = peso/(altura^2)
+        self.data = dt.datetime.today()
+        self.id_paciente = id_paciente
+
+        nomeLabel = wx.StaticText(self.panel, label="Nome do Paciente:")
+        self.nomeInput = wx.StaticText(self.panel, label=self.nome)
+        endLabel = wx.StaticText(self.panel, label="Endereço Completo:")
+        self.endInput = wx.StaticText(self.panel, label=self.end)
+        alturaLabel = wx.StaticText(self.panel, label="Altura (cm):")
+        self.alturaInput = wx.StaticText(self.panel, label=str(self.altura))
+        pesoLabel = wx.StaticText(self.panel, label="Peso (Kg):")
+        self.pesoInput = wx.StaticText(self.panel, label=str(self.peso))
+        dataLabel = wx.StaticText(self.panel, label='Data:')
+        datainput = wx.StaticText(self.panel, label=str(self.data))
+        imcLabel = wx.StaticText(self.panel, label='IMC:')
+        imcinput = wx.StaticText(self.panel, label=str(self.imc))
+
+        botaoCalcular = wx.Button(self.panel, label = 'Salvar')
+        botaoReiniciar = wx.Button(self.panel, label = 'Voltar')
+        botaoSair = wx.Button(self.panel, label = 'Cancelar')
+
+        self.Bind(wx.EVT_BUTTON, self.onSalvar, botaoCalcular)
+        self.Bind(wx.EVT_BUTTON, self.onVoltar, botaoReiniciar)
+        self.Bind(wx.EVT_BUTTON, self.onCancelar, botaoSair)
+
+        formSizer = wx.GridBagSizer(hgap = 5, vgap = 5)
+
+        formSizer.Add(nomeLabel, pos = (0,0), flag = wx.ALL|wx.ALIGN_CENTER_VERTICAL)
+        formSizer.Add(self.nomeInput, pos = (0,1), flag = wx.ALL|wx.EXPAND, span=(1,3), border=2)
+        formSizer.Add(endLabel, pos=(1, 0), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL, border=2)
+        formSizer.Add(self.endInput, pos=(1, 1), flag=wx.ALL | wx.EXPAND, span=(1, 3), border=2)
+        formSizer.Add(alturaLabel, pos = (2,0), flag = wx.ALL|wx.ALIGN_CENTER_VERTICAL, border = 2)
+        formSizer.Add(self.alturaInput, pos=(2, 1), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(pesoLabel, pos=(2, 2), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL, border=2)
+        formSizer.Add(self.pesoInput, pos=(2, 3), flag=wx.ALL | wx.EXPAND, border=2)
+        formSizer.Add(dataLabel, pos=(3,0), flag=wx.ALL,border=2)
+        formSizer.Add(datainput, pos=(3,1),flag=wx.ALL, border=2)
+        formSizer.Add(imcLabel, pos=(3,2), flag=wx.ALL, border=2)
+        formSizer.Add(imcinput, pos=(3,3), flag=wx.ALL, border=2)
+
+        formSizer.Add(botaoCalcular, pos=(6, 1), flag=wx.ALL, border=2)
+        formSizer.Add(botaoReiniciar, pos=(6,2), flag = wx.ALL, border = 2)
+        formSizer.Add(botaoSair, pos=(6,3), flag=wx.ALL, border = 2)
+
+        topSizer = wx.GridBagSizer(hgap=5, vgap=5)
+        topSizer.Add(formSizer, pos=(0, 0), span=(2, 4),
+                     flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_CENTER_HORIZONTAL | wx.EXPAND)
+        topSizer.AddGrowableRow(0)
+        topSizer.AddGrowableCol(0)
+
+        self.panel.SetSizer(topSizer)
+        topSizer.Fit(self)
+        self.Centre()
+
+
+    def onSalvar(self, event):
+        insert(IMC, (self.id_paciente, self.peso, self.imc, self.data))
+        global tela
+        tela = TelaPaciente(self.id_paciente, self.nome, self.end, self.altura).Show()
+        self.Close()
+
+
+    def onVoltar(self, event):
+        global tela
+        tela = TelaAdicionarImc(self.id_paciente, self.peso).Show()
+        self.Close()
+
+
+    def onCancelar(self, event):
+        global tela
+        tela = TelaPaciente(self.id_paciente, self.nome, self.end, self.altura).Show()
+        self.Close()
+
+verificabd()
+ex = wx.App()
+tela = TelaInicial()
+ex.MainLoop()
